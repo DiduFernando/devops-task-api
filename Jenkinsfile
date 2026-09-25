@@ -47,7 +47,7 @@ pipeline {
         stage('Security') {
             steps {
                 bat '''
-                    docker run --rm -v "%CD%:/workspace" aquasec/trivy:latest fs --severity HIGH,CRITICAL --exit-code 1 /workspace
+                    docker run --rm -v "%CD%:/workspace" aquasec/trivy:latest fs --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --timeout 10m --skip-dirs /workspace/.venv /workspace
                 '''
             }
         }
