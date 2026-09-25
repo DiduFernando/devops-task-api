@@ -3,8 +3,7 @@ pipeline {
 
     environment {
         APP_NAME = 'devops-task-api'
-        IMAGE_TAG = "${BUILD_NUMBER}"
-        IMAGE_NAME = "${APP_NAME}:${BUILD_NUMBER}"
+        IMAGE_NAME = "devops-task-api:${BUILD_NUMBER}"
         STAGING_PORT = '5001'
         PROD_PORT = '5000'
     }
@@ -12,12 +11,11 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                sh '''
-                    python3 -m venv .venv
-                    . .venv/bin/activate
-                    pip install --upgrade pip
-                    pip install -r requirements.txt
-                    python -m compileall app
+                bat '''
+                    python -m venv .venv
+                    .venv\\Scripts\\python.exe -m pip install --upgrade pip
+                    .venv\\Scripts\\python.exe -m pip install -r requirements.txt
+                    .venv\\Scripts\\python.exe -m compileall app
                 '''
                 archiveArtifacts artifacts: 'app/**/*.py,requirements.txt,Dockerfile,docker-compose.yml', fingerprint: true
             }
@@ -25,9 +23,8 @@ pipeline {
 
         stage('Test') {
             steps {
-                sh '''
-                    . .venv/bin/activate
-                    pytest -q --cov=app --cov-report=xml --junitxml=test-results.xml
+                bat '''
+                    .venv\\Scripts\\python.exe -m pytest -q --cov=app --cov-report=xml --junitxml=test-results.xml
                 '''
             }
             post {
@@ -40,61 +37,51 @@ pipeline {
 
         stage('Code Quality') {
             steps {
-                sh '''
-                    . .venv/bin/activate
-                    python -m compileall -q app
-                    if command -v pylint >/dev/null 2>&1; then
-                      pylint app || true
-                    else
-                      echo "Pylint not installed; connect this stage to SonarQube using the Jenkins SonarQube plugin."
-                    fi
+                bat '''
+                    .venv\\Scripts\\python.exe -m pylint app --output-format=text > pylint-report.txt
                 '''
+                archiveArtifacts artifacts: 'pylint-report.txt', allowEmptyArchive: false
             }
         }
 
         stage('Security') {
             steps {
-                sh '''
-                    if command -v trivy >/dev/null 2>&1; then
-                      trivy fs --severity HIGH,CRITICAL --exit-code 1 .
-                    else
-                      echo "Trivy is not installed on this Jenkins agent."
-                    fi
+                bat '''
+                    trivy fs --severity HIGH,CRITICAL --exit-code 1 .
                 '''
             }
         }
 
         stage('Deploy') {
             steps {
-                sh '''
-                    docker build -t ${IMAGE_NAME} .
-                    docker rm -f ${APP_NAME}-staging 2>/dev/null || true
-                    docker run -d --name ${APP_NAME}-staging -p ${STAGING_PORT}:5000 ${IMAGE_NAME}
-                    sleep 5
-                    curl --fail http://localhost:${STAGING_PORT}/health
+                bat '''
+                    docker build -t %IMAGE_NAME% .
+                    docker rm -f %APP_NAME%-staging 2>NUL || exit /B 0
+                    docker run -d --name %APP_NAME%-staging -p %STAGING_PORT%:5000 %IMAGE_NAME%
+                    timeout /T 5 /NOBREAK >NUL
+                    curl --fail http://localhost:%STAGING_PORT%/health
                 '''
             }
         }
 
         stage('Release') {
             steps {
-                sh '''
-                    docker tag ${IMAGE_NAME} ${APP_NAME}:latest
-                    docker rm -f ${APP_NAME}-production 2>/dev/null || true
-                    docker run -d --name ${APP_NAME}-production -p ${PROD_PORT}:5000 ${APP_NAME}:latest
-                    sleep 5
-                    curl --fail http://localhost:${PROD_PORT}/health
-                    git tag -f "v1.0.${BUILD_NUMBER}" || true
+                bat '''
+                    docker tag %IMAGE_NAME% %APP_NAME%:latest
+                    docker rm -f %APP_NAME%-production 2>NUL || exit /B 0
+                    docker run -d --name %APP_NAME%-production -p %PROD_PORT%:5000 %APP_NAME%:latest
+                    timeout /T 5 /NOBREAK >NUL
+                    curl --fail http://localhost:%PROD_PORT%/health
                 '''
             }
         }
 
         stage('Monitoring') {
             steps {
-                sh '''
-                    echo "Checking production health endpoint..."
-                    curl --fail http://localhost:${PROD_PORT}/health
-                    echo "Monitoring check passed."
+                bat '''
+                    echo Checking production health endpoint...
+                    curl --fail http://localhost:%PROD_PORT%/health
+                    echo Monitoring check passed.
                 '''
             }
         }
@@ -105,10 +92,10 @@ pipeline {
             echo "Pipeline completed successfully: ${APP_NAME}:${BUILD_NUMBER}"
         }
         failure {
-            echo "Pipeline failed. Review the failed stage and Jenkins console output."
+            echo 'Pipeline failed. Review the failed stage and Jenkins console output.'
         }
         always {
-            archiveArtifacts artifacts: 'test-results.xml,coverage.xml', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'test-results.xml,coverage.xml,pylint-report.txt', allowEmptyArchive: true
         }
     }
 }
