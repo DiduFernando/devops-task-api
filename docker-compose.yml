@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    image: devops-task-api:${APP_VERSION:-latest}
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: sqlite:////tmp/tasks.db
+    volumes:
+      - task_data:/tmp
+
+volumes:
+  task_data:
