@@ -55,11 +55,44 @@ pipeline {
         stage('Deploy') {
             steps {
                 bat '''
+                    echo Building Docker image...
                     docker build -t %IMAGE_NAME% .
+
+                    echo Removing previous staging container...
                     docker rm -f %APP_NAME%-staging 2>NUL || exit /B 0
+
+                    echo Starting staging container...
                     docker run -d --name %APP_NAME%-staging -p %STAGING_PORT%:5000 %IMAGE_NAME%
-                    timeout /T 5 /NOBREAK >NUL
-                    curl --fail http://localhost:%STAGING_PORT%/health
+
+                    echo Waiting for staging application to become healthy...
+
+                    set RETRIES=0
+
+                    :healthcheck
+                    curl --fail http://localhost:%STAGING_PORT%/health >NUL 2>&1
+
+                    if %ERRORLEVEL% EQU 0 (
+                        echo Staging deployment is healthy.
+                        goto healthcheck_success
+                    )
+
+                    set /A RETRIES+=1
+
+                    if %RETRIES% GEQ 12 (
+                        echo Staging application failed health check.
+                        echo Container status:
+                        docker ps -a --filter "name=%APP_NAME%-staging"
+                        echo Container logs:
+                        docker logs %APP_NAME%-staging
+                        exit /B 1
+                    )
+
+                    echo Health check failed. Retrying...
+                    ping 127.0.0.1 -n 3 >NUL
+                    goto healthcheck
+
+                    :healthcheck_success
+                    echo Staging deployment completed successfully.
                 '''
             }
         }
@@ -67,11 +100,43 @@ pipeline {
         stage('Release') {
             steps {
                 bat '''
+                    echo Promoting image to production...
+
                     docker tag %IMAGE_NAME% %APP_NAME%:latest
+
                     docker rm -f %APP_NAME%-production 2>NUL || exit /B 0
+
                     docker run -d --name %APP_NAME%-production -p %PROD_PORT%:5000 %APP_NAME%:latest
-                    timeout /T 5 /NOBREAK >NUL
-                    curl --fail http://localhost:%PROD_PORT%/health
+
+                    echo Waiting for production application to become healthy...
+
+                    set RETRIES=0
+
+                    :prodhealthcheck
+                    curl --fail http://localhost:%PROD_PORT%/health >NUL 2>&1
+
+                    if %ERRORLEVEL% EQU 0 (
+                        echo Production deployment is healthy.
+                        goto prodhealthcheck_success
+                    )
+
+                    set /A RETRIES+=1
+
+                    if %RETRIES% GEQ 12 (
+                        echo Production application failed health check.
+                        echo Container status:
+                        docker ps -a --filter "name=%APP_NAME%-production"
+                        echo Container logs:
+                        docker logs %APP_NAME%-production
+                        exit /B 1
+                    )
+
+                    echo Production health check failed. Retrying...
+                    ping 127.0.0.1 -n 3 >NUL
+                    goto prodhealthcheck
+
+                    :prodhealthcheck_success
+                    echo Production release completed successfully.
                 '''
             }
         }
