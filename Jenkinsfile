@@ -47,7 +47,7 @@ pipeline {
         stage('Security') {
             steps {
                 bat '''
-                    trivy fs --severity HIGH,CRITICAL --exit-code 1 .
+                    docker run --rm -v "%CD%:/workspace" aquasec/trivy:latest fs --severity HIGH,CRITICAL --exit-code 1 /workspace
                 '''
             }
         }
